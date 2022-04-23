@@ -1,6 +1,7 @@
 API Reference Documentation
 -----
 ### Enumerations
+
 #### PacketFlags
 Definitions of a flags for `Peer.Send()` function:
 
@@ -10,13 +11,13 @@ Definitions of a flags for `Peer.Send()` function:
 
 `PacketFlags.Unsequenced` a packet will not be sequenced with other packets and may be delivered out of order. This flag makes delivery unreliable.
 
-`PacketFlags.NoAllocate` a packet will not allocate data, and the user must supply it instead.
+`PacketFlags.NoAllocate` a packet will not allocate data, and the user must supply it instead. Packet lifetime should be tracked using the `PacketFreeCallback` callback.
 
-`PacketFlags.UnreliableFragmented` a packet will be unreliably fragmented if it exceeds the MTU. By default packets larger than MTU fragmented reliably.
+`PacketFlags.UnreliableFragmented` a packet will be unreliably fragmented if it exceeds the MTU. By default, unreliable packets that exceed the MTU are fragmented and transmitted reliably. This flag should be used to explicitly indicate packets that should remain unreliable.
 
 `PacketFlags.Instant` a packet will not be bundled with other packets at a next service iteration and sent instantly instead. This delivery type trades multiplexing efficiency in favor of latency. The same packet can't be used for multiple `Peer.Send()` calls.
 
-`PacketFlags.Crucial` a packet that was enqueued for sending unreliably should not be dropped due to throttling and sent if possible.
+`PacketFlags.Unthrottled` a packet that was enqueued for sending unreliably should not be dropped due to throttling and sent if possible.
 
 `PacketFlags.Sent` a packet was sent from all queues it has entered.
 
@@ -27,11 +28,11 @@ Definitions of event types for `Event.Type` property:
 
 `EventType.Connect` a connection request initiated by `Peer.Connect()` function has completed. `Event.Peer` returns a peer which successfully connected. `Event.Data` returns the user-supplied data describing the connection or 0 if none is available.
 
-`EventType.Disconnect` a peer has disconnected. This event is generated on a successful completion of a disconnect initiated by `Peer.Disconnect`. `Event.Peer` returns a peer which disconnected. `Event.Data` returns the user-supplied data describing the disconnection or 0 if none is available.
+`EventType.Disconnect` a peer has disconnected. This event is generated on a successful completion of a disconnect initiated by `Peer.Disconnect()` function. `Event.Peer` returns a peer which disconnected. `Event.Data` returns the user-supplied data describing the disconnection or 0 if none is available.
 
 `EventType.Receive` a packet has been received from a peer. `Event.Peer` returns a peer which sent the packet. `Event.ChannelID` specifies the channel number upon which the packet was received. `Event.Packet` returns a packet that was received, and this packet must be destroyed using `Event.Packet.Dispose()` function after use.
 
-`EventType.Timeout` a peer has timed out. This event occurs if a peer has timed out or if a connection request initialized by `Peer.Connect` has timed out. `Event.Peer` returns a peer which timed out.
+`EventType.Timeout` a peer has timed out. This event occurs if a peer has timed out or if a connection request initialized by `Peer.Connect()` has timed out. `Event.Peer` returns a peer which timed out.
 
 #### PeerState
 Definitions of peer states for `Peer.State` property:
@@ -59,7 +60,12 @@ Definitions of peer states for `Peer.State` property:
 
 #### Packet callbacks
 
-`PacketFreeCallback(Packet packet)` notifies when a packet is being destroyed. A reference to the delegate should be preserved from being garbage collected.
+`PacketFreeCallback(Packet packet)` notifies when a packet is being destroyed. Indicates if a reliable packet was acknowledged. A reference to the delegate should be preserved from being garbage collected.
+
+#### Host callbacks
+Provides per host events.
+
+`InterceptCallback(ref Event @event, ref Address address, IntPtr receivedData, int receivedDataLength)` notifies when a raw UDP packet is intercepted. Status code returned from this callback instructs ENet how the set event should be handled. Returning 1 indicates dispatching of the set event by the service. Returning 0 indicates that ENet subsystems should handle received data. Returning -1 indicates an error. A reference to the delegate should be preserved from being garbage collected.
 
 ### Structures
 #### Address
@@ -103,7 +109,7 @@ Contains a managed pointer to the packet.
 
 `Packet.HasReferences` checks references to the packet.
 
-`Packet.SetFreeCallback(PacketFreeCallback callback)` - No longer available.
+`Packet.SetFreeCallback(PacketFreeCallback callback)` sets callback to notify when an appropriate packet is being destroyed. A pointer `IntPtr` to a callback can be used instead of a reference to a delegate.
 
 `Packet.Create(byte[] data, int offset, int length, PacketFlags flags)` creates a packet that may be sent to a peer. The offset parameter indicates the starting point of data in an array, the length is the ending point of data in an array. All parameters are optional. Multiple packet flags can be specified at once. A pointer `IntPtr` to a native buffer can be used instead of a reference to a byte array.
 
@@ -136,11 +142,13 @@ Contains a managed pointer to the peer and cached ID.
 
 `Peer.PacketsLost` returns a total number of lost packets during the connection.
 
+`Peer.PacketsThrottle` returns a ratio of packets throttle depending on conditions of the connection to the peer.
+
 `Peer.BytesSent` returns a total number of bytes sent during the connection.
 
 `Peer.BytesReceived` returns a total number of bytes received during the connection.
 
-`Peer.Data` set or get the user-supplied data. Should be used with an explicit cast to appropriate data type.
+`Peer.Data` gets or sets the user-supplied data. Should be used with an explicit cast to appropriate data type.
 
 `Peer.ConfigureThrottle(uint interval, uint acceleration, uint deceleration, uint threshold)` configures throttle parameter for a peer. Unreliable packets are dropped by ENet in response to the varying conditions of the connection to the peer. The throttle represents a probability that an unreliable packet should not be dropped and thus sent by ENet to the peer. The lowest mean round-trip time from the sending of a reliable packet to the receipt of its acknowledgment is measured over an amount of time specified by the interval parameter in milliseconds. If a measured round-trip time happens to be significantly less than the mean round-trip time measured over the interval, then the throttle probability is increased to allow more traffic by an amount specified in the acceleration parameter, which is a ratio to the `Library.throttleScale` constant. 
 
@@ -158,11 +166,11 @@ The bandwidth limits of the local and foreign hosts are taken into account to de
 
 `Peer.Timeout(uint timeoutLimit, uint timeoutMinimum, uint timeoutMaximum)` sets a timeout parameters for a peer. The timeout parameters control how and when a peer will timeout from a failure to acknowledge reliable traffic. Timeout values used in the semi-linear mechanism, where if a reliable packet is not acknowledged within an average round-trip time plus a variance tolerance until timeout reaches a set limit. If the timeout is thus at this limit and reliable packets have been sent but not acknowledged within a certain minimum time period, the peer will be disconnected. Alternatively, if reliable packets have been sent but not acknowledged for a certain maximum time period, the peer will be disconnected regardless of the current timeout limit value.
 
-`Peer.Disconnect(uint data)` request a disconnection from a peer.
+`Peer.Disconnect(uint data)` requests a disconnection from a peer.
 
-`Peer.DisconnectNow(uint data)` force an immediate disconnection from a peer.
+`Peer.DisconnectNow(uint data)` forces an immediate disconnection from a peer.
 
-`Peer.DisconnectLater(uint data)` request a disconnection from a peer, but only after all queued outgoing packets are sent.
+`Peer.DisconnectLater(uint data)` requests a disconnection from a peer, but only after all queued outgoing packets are sent.
 
 `Peer.Reset()` forcefully disconnects a peer. The foreign host represented by the peer is not notified of the disconnection and will timeout on its connection to the local host.
 
@@ -200,7 +208,9 @@ Contains a managed pointer to the host.
 
 `Host.SetChannelLimit(int channelLimit)` limits the maximum allowed channels of future incoming connections. 
 
-`Host.Flush()` sends any queued packets on the specified host to its designated peers. 
+`Host.SetInterceptCallback(InterceptCallback callback)` sets callback to notify when a raw UDP packet is interecepted. A pointer `IntPtr` to a callback can be used instead of a reference to a delegate.
+
+`Host.Flush()` sends any queued packets on the specified host to its designated peers.
 
 #### Library
 Contains constant fields.

@@ -34,7 +34,6 @@ set(ENET_SRCS
 	${ENET_SRCDIR}/enet.c
 	${ENET_SRCDIR}/enet.h
 	${ENET_SRCDIR}/custom/enet_logging.h
-	${ENET_SRCDIR}/custom/enet_iosFixes.h
 )
 
 if(ENET_DEBUG)
@@ -44,8 +43,8 @@ endif()
 if(MSVC)
 	set(CompilerFlags
         CMAKE_C_FLAGS
-        CMAKE_C_FLAGS_DEBUG
         CMAKE_C_FLAGS_RELEASE
+        CMAKE_C_FLAGS_DEBUG        
     )
 	foreach(CompilerFlag ${CompilerFlags})
 	  string(REPLACE "/MD" "/MT" ${CompilerFlag} "${${CompilerFlag}}")
